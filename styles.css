@@ -337,3 +337,14 @@ main { padding-top: clamp(18px, 3vw, 36px); }
   .timeline-event.is-above .event-caption { bottom: calc(71px + var(--stack-offset)); }
   .timeline-event.is-below .event-caption { top: calc(71px + var(--stack-offset)); }
 }
+
+/* Optional event timestamps */
+.timestamp-row { display: flex; align-items: center; justify-content: center; gap: 6px; max-height: 0; margin-top: 0; overflow: hidden; opacity: 0; transition: max-height .16s ease, margin .16s ease, opacity .16s ease; }
+.timestamp-row.has-value, .timeline-event:hover .timestamp-row, .timeline-event:focus-within .timestamp-row { max-height: 30px; margin-top: 5px; opacity: 1; }
+.timestamp-row span { color: var(--event-color); font-size: 9px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.timestamp-input { width: min(150px, 60%); padding: 3px 6px; border: 1px solid color-mix(in srgb, var(--event-color) 32%, var(--line)); border-radius: 6px; background: rgba(255,255,255,.72); color: var(--ink); font-size: 11px; font-weight: 700; text-align: center; }
+.timestamp-input::placeholder { color: var(--muted); font-weight: 500; }
+.timestamp-input:focus { outline: 2px solid color-mix(in srgb, var(--event-color) 25%, transparent); outline-offset: 1px; }
+.is-presenting .timestamp-row:not(.has-value) { display: none; }
+.is-presenting .timestamp-row.has-value { max-height: 30px; margin-top: 6px; opacity: 1; }
+.is-presenting .timestamp-input { border: 0; background: transparent; pointer-events: none; }

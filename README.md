@@ -5,6 +5,7 @@ TenseLine is an interactive, local-first grammar timeline maker for teachers. Cr
 ## Features
 
 - Add events by clicking directly on the timeline.
+- Add an optional flexible timestamp to any event.
 - Drag events and the “Now” marker freely.
 - Display an event as a single moment or an adjustable continuous action.
 - Automatically stack nearby event labels to keep them readable.

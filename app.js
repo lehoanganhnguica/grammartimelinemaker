@@ -6,8 +6,8 @@ const starterState = () => ({
   nowX: 78,
   sentence: "My mom had cooked dinner when I got home.",
   events: [
-    { id: makeId(), label: "Mom cooked dinner", color: PALETTE[0], x: 25, endX: 43, lane: "below", shape: "point" },
-    { id: makeId(), label: "I got home", color: PALETTE[1], x: 48, endX: 66, lane: "above", shape: "point" },
+    { id: makeId(), label: "Mom cooked dinner", timestamp: "", color: PALETTE[0], x: 25, endX: 43, lane: "below", shape: "point" },
+    { id: makeId(), label: "I got home", timestamp: "", color: PALETTE[1], x: 48, endX: 66, lane: "above", shape: "point" },
   ],
   links: [],
 });
@@ -37,7 +37,10 @@ function loadState() {
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (stored?.events && Array.isArray(stored.links)) {
-      stored.events.forEach((item) => { item.endX = clamp(item.endX ?? item.x + 18, item.x + 5, 96); });
+      stored.events.forEach((item) => {
+        item.endX = clamp(item.endX ?? item.x + 18, item.x + 5, 96);
+        item.timestamp = item.timestamp || "";
+      });
       stored.textSize = clamp(Number(stored.textSize) || 24, 16, 48);
       stored.nowX = clamp(Number(stored.nowX) || 78, 4, 96);
       return stored;
@@ -151,6 +154,10 @@ function renderTimeline() {
       <article class="timeline-event ${lane} ${shape}" data-id="${item.id}" style="--event-x:${item.x}%;--event-width:${width}%;--event-color:${item.color}" tabindex="0" aria-label="${escapeAttribute(item.label)} event">
         <div class="event-caption">
           <textarea class="inline-name" rows="1" aria-label="Event name">${escapeHtml(item.label)}</textarea>
+          <label class="timestamp-row ${item.timestamp ? "has-value" : ""}">
+            <span>Time</span>
+            <input class="timestamp-input" type="text" value="${escapeAttribute(item.timestamp)}" placeholder="optional" aria-label="Optional event timestamp" />
+          </label>
           <div class="inline-controls">
             <label class="colour-control" title="Event colour"><span>Colour</span><input class="inline-colour" type="color" value="${item.color}" aria-label="Event colour" /></label>
             <button class="inline-action lane-action" type="button" title="Move ${item.lane === "above" ? "below" : "above"} the line" aria-label="Move ${item.lane === "above" ? "below" : "above"} the line">${item.lane === "above" ? "↓" : "↑"}</button>
@@ -179,6 +186,14 @@ function renderTimeline() {
       renderParagraphTools(false);
       scheduleSave();
     });
+    const timestampField = node.querySelector(".timestamp-input");
+    timestampField.addEventListener("input", (event) => {
+      item.timestamp = event.target.value;
+      event.target.closest(".timestamp-row").classList.toggle("has-value", Boolean(item.timestamp.trim()));
+      scheduleCollisionLayout();
+      scheduleSave();
+    });
+    timestampField.addEventListener("blur", () => requestAnimationFrame(scheduleCollisionLayout));
     node.querySelector(".inline-colour").addEventListener("input", (event) => {
       item.color = event.target.value;
       node.style.setProperty("--event-color", item.color);
@@ -421,7 +436,7 @@ function buildHighlightedText() {
 function addEvent(x = null) {
   const index = state.events.length;
   const item = {
-    id: makeId(), label: `New event ${index + 1}`, color: PALETTE[index % PALETTE.length],
+    id: makeId(), label: `New event ${index + 1}`, timestamp: "", color: PALETTE[index % PALETTE.length],
     x: x ?? clamp(25 + index * 15, 10, 90), lane: index % 2 ? "above" : "below", shape: "point",
   };
   item.endX = clamp(item.x + 18, item.x + 5, 96);
