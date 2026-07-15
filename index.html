@@ -48,7 +48,8 @@
             <button class="now-line" id="nowMarker" type="button" aria-label="Now marker. Drag left or right to move."><span class="now-label">Now</span><i aria-hidden="true"></i></button>
             <div id="eventLayer" class="event-layer" aria-label="Timeline events"></div>
             <div class="click-preview" id="clickPreview" aria-hidden="true"><span>Click to add here</span></div>
-            <button class="stage-add-hint" id="stageAddHint" type="button">Click anywhere to add an event</button>
+            <div class="range-preview" id="rangePreview" aria-hidden="true"><span>Release to add a continuous event</span></div>
+            <p class="stage-add-hint" id="stageAddHint">Click for a moment · drag for a continuous event</p>
           </div>
           <div class="canvas-paragraph" aria-labelledby="paragraphLabel">
             <div class="paragraph-heading">
@@ -62,7 +63,7 @@
               <div class="link-toolbar" id="linkToolbar" aria-label="Link selected words to an event"></div>
             </div>
           </div>
-          <p class="stage-help">Drag the coloured marker to move an event. Edit its name, colour, position, duration, or remove it directly on the timeline.</p>
+          <p class="stage-help">Click the timeline to add a moment, or hold and drag along it to add a continuous event. Existing events can still be moved and edited directly.</p>
         </section>
       </main>
       <footer class="site-footer">
@@ -85,6 +86,7 @@
       </form>
     </dialog>
 
+    <script src="timeline-math.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

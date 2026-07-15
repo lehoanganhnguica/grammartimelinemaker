@@ -18,12 +18,14 @@ let saveTimer = null;
 let layoutFrame = null;
 let lastPreviewX = 50;
 let nowDrag = false;
+let stageCreate = null;
 
 const els = {
   editor: document.querySelector("#paragraphEditor"),
   stage: document.querySelector("#timelineStage"),
   layer: document.querySelector("#eventLayer"),
   clickPreview: document.querySelector("#clickPreview"),
+  rangePreview: document.querySelector("#rangePreview"),
   nowMarker: document.querySelector("#nowMarker"),
   linkToolbar: document.querySelector("#linkToolbar"),
   textSizeRange: document.querySelector("#textSizeRange"),
@@ -94,19 +96,9 @@ function bindGlobalEvents() {
     saveNow();
     showToast("All events cleared — paragraph kept");
   });
-  document.querySelector("#stageAddHint").addEventListener("click", (event) => {
-    event.stopPropagation();
-    addEvent(lastPreviewX);
-  });
+  els.stage.addEventListener("pointerdown", startStageCreate);
   els.stage.addEventListener("pointermove", updateClickPreview);
   els.stage.addEventListener("pointerleave", hideClickPreview);
-  els.stage.addEventListener("click", (event) => {
-    if (event.target.closest(".timeline-event, .stage-add-hint, .now-line")) return;
-    const rect = els.stage.getBoundingClientRect();
-    const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 4, 96);
-    addEvent(x);
-    hideClickPreview();
-  });
 
   document.querySelector("#newButton").addEventListener("click", () => els.dialog.showModal());
   document.querySelector("#confirmNew").addEventListener("click", () => {
@@ -130,6 +122,7 @@ function bindGlobalEvents() {
 
   window.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", endDrag);
+  window.addEventListener("pointercancel", cancelStageCreate);
   window.addEventListener("resize", scheduleCollisionLayout);
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && document.body.classList.contains("is-presenting")) {
@@ -145,13 +138,15 @@ function render() {
 }
 
 function renderTimeline() {
+  const waveTracks = TimelineMath.assignWaveTracks(state.events);
   els.layer.innerHTML = state.events.map((item) => {
     const lane = item.lane === "above" ? "is-above" : "is-below";
     const shape = item.shape === "range" ? "is-range" : "is-point";
+    const waveTrack = waveTracks[item.id] || { side: "above", level: 0 };
     item.endX = clamp(item.endX ?? item.x + 18, item.x + 5, 96);
     const width = item.shape === "range" ? item.endX - item.x : 0;
     return `
-      <article class="timeline-event ${lane} ${shape}" data-id="${item.id}" style="--event-x:${item.x}%;--event-width:${width}%;--event-color:${item.color}" tabindex="0" aria-label="${escapeAttribute(item.label)} event">
+      <article class="timeline-event ${lane} ${shape} wave-${waveTrack.side}" data-id="${item.id}" style="--event-x:${item.x}%;--event-width:${width}%;--event-color:${item.color};--wave-level:${waveTrack.level}" tabindex="0" aria-label="${escapeAttribute(item.label)} event">
         <div class="event-caption">
           <textarea class="inline-name" rows="1" aria-label="Event name">${escapeHtml(item.label)}</textarea>
           <label class="timestamp-row ${item.timestamp ? "has-value" : ""}">
@@ -289,15 +284,69 @@ function applyCollisionLayout() {
 }
 
 function updateClickPreview(event) {
-  if (drag || nowDrag || event.target.closest(".timeline-event, .stage-add-hint, .now-line")) return hideClickPreview();
+  if (drag || nowDrag || stageCreate || event.target.closest(".timeline-event, .stage-add-hint, .now-line")) return hideClickPreview();
   const rect = els.stage.getBoundingClientRect();
+  if (!TimelineMath.isAlongTimeline(event.clientY, rect)) return hideClickPreview();
   lastPreviewX = clamp(((event.clientX - rect.left) / rect.width) * 100, 4, 96);
   els.clickPreview.style.left = `${lastPreviewX}%`;
   els.clickPreview.classList.add("is-visible");
+  els.stage.classList.add("is-axis-hover");
 }
 
 function hideClickPreview() {
   els.clickPreview.classList.remove("is-visible");
+  els.stage.classList.remove("is-axis-hover");
+}
+
+function startStageCreate(event) {
+  if (event.button !== 0 || drag || nowDrag || document.body.classList.contains("is-presenting")) return;
+  if (event.target.closest(".timeline-event, .stage-add-hint, .now-line, button, input, textarea, label")) return;
+  const rect = els.stage.getBoundingClientRect();
+  if (!TimelineMath.isAlongTimeline(event.clientY, rect)) return;
+  const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 4, 96);
+  stageCreate = {
+    pointerId: event.pointerId,
+    startClientX: event.clientX,
+    startX: x,
+    currentX: x,
+    moved: false,
+  };
+  hideClickPreview();
+  event.preventDefault();
+}
+
+function updateStageCreate(event) {
+  if (!stageCreate || event.pointerId !== stageCreate.pointerId) return;
+  const rect = els.stage.getBoundingClientRect();
+  stageCreate.currentX = clamp(((event.clientX - rect.left) / rect.width) * 100, 4, 96);
+  stageCreate.moved = stageCreate.moved || Math.abs(event.clientX - stageCreate.startClientX) >= 8;
+  if (!stageCreate.moved) return;
+  const range = TimelineMath.rangeFromDrag(stageCreate.startX, stageCreate.currentX);
+  els.rangePreview.style.setProperty("--draft-x", `${range.x}%`);
+  els.rangePreview.style.setProperty("--draft-width", `${range.endX - range.x}%`);
+  els.rangePreview.classList.add("is-visible");
+}
+
+function finishStageCreate(event) {
+  if (!stageCreate || event.pointerId !== stageCreate.pointerId) return false;
+  updateStageCreate(event);
+  const creation = stageCreate;
+  stageCreate = null;
+  els.rangePreview.classList.remove("is-visible");
+  if (creation.moved) {
+    const range = TimelineMath.rangeFromDrag(creation.startX, creation.currentX);
+    addEvent(range.x, { shape: "range", endX: range.endX });
+    showToast("Continuous event added");
+  } else {
+    addEvent(creation.startX);
+  }
+  return true;
+}
+
+function cancelStageCreate(event) {
+  if (!stageCreate || (event?.pointerId != null && event.pointerId !== stageCreate.pointerId)) return;
+  stageCreate = null;
+  els.rangePreview.classList.remove("is-visible");
 }
 
 function startNowDrag(event) {
@@ -333,6 +382,10 @@ function startDrag(event, item, node, handle) {
 }
 
 function onPointerMove(event) {
+  if (stageCreate) {
+    updateStageCreate(event);
+    return;
+  }
   if (nowDrag) {
     const rect = els.stage.getBoundingClientRect();
     setNowPosition(((event.clientX - rect.left) / rect.width) * 100, false);
@@ -357,7 +410,8 @@ function onPointerMove(event) {
   renderTimeline();
 }
 
-function endDrag() {
+function endDrag(event) {
+  if (finishStageCreate(event)) return;
   if (nowDrag) {
     nowDrag = false;
     els.nowMarker.classList.remove("is-dragging");
@@ -433,13 +487,14 @@ function buildHighlightedText() {
   return html + escapeHtml(state.sentence.slice(cursor));
 }
 
-function addEvent(x = null) {
+function addEvent(x = null, options = {}) {
   const index = state.events.length;
+  const eventX = x ?? clamp(25 + index * 15, 10, 90);
   const item = {
     id: makeId(), label: `New event ${index + 1}`, timestamp: "", color: PALETTE[index % PALETTE.length],
-    x: x ?? clamp(25 + index * 15, 10, 90), lane: index % 2 ? "above" : "below", shape: "point",
+    x: eventX, lane: index % 2 ? "above" : "below", shape: options.shape || "point",
   };
-  item.endX = clamp(item.x + 18, item.x + 5, 96);
+  item.endX = clamp(options.endX ?? item.x + 18, item.x + 5, 96);
   state.events.push(item);
   render();
   scheduleSave();
