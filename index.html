@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Create interactive, colour-coded grammar timelines and connect events to example sentences." />
+    <title>TenseLine — Grammar timeline maker</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="TenseLine home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>TenseLine</span>
+        </a>
+        <div class="top-actions">
+          <span class="saved-state" id="savedState" role="status">Saved locally</span>
+          <div class="readability-control" aria-label="Text readability controls">
+            <span class="readability-label">Text size</span>
+            <button class="size-step" id="textSmaller" type="button" aria-label="Make text smaller">−</button>
+            <input id="textSizeRange" type="range" min="16" max="48" step="1" value="24" aria-label="Event and paragraph text size" />
+            <button class="size-step" id="textLarger" type="button" aria-label="Make text larger">＋</button>
+            <output id="textSizeValue" for="textSizeRange">24px</output>
+          </div>
+          <button class="button button-ghost" id="newButton" type="button">New timeline</button>
+          <button class="button button-dark" id="presentButton" type="button">Present</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="canvas-card" aria-labelledby="canvasHeading">
+          <div class="card-heading">
+            <div>
+              <p class="step-label">01 · Build the timeline</p>
+              <h1 id="canvasHeading">What happened, and when?</h1>
+            </div>
+            <div class="timeline-actions">
+              <button class="button button-ghost clear-events-button" id="clearEventsButton" type="button">Clear events</button>
+              <button class="button button-accent" id="addEventButton" type="button"><span aria-hidden="true">＋</span> Add event</button>
+            </div>
+          </div>
+
+          <div class="timeline-stage" id="timelineStage">
+            <div class="period-label period-past">Past</div>
+            <div class="period-label period-future">Future</div>
+            <div class="timeline-axis" aria-hidden="true"><span class="axis-arrow"></span></div>
+            <button class="now-line" id="nowMarker" type="button" aria-label="Now marker. Drag left or right to move."><span class="now-label">Now</span><i aria-hidden="true"></i></button>
+            <div id="eventLayer" class="event-layer" aria-label="Timeline events"></div>
+            <div class="click-preview" id="clickPreview" aria-hidden="true"><span>Click to add here</span></div>
+            <button class="stage-add-hint" id="stageAddHint" type="button">Click anywhere to add an event</button>
+          </div>
+          <div class="canvas-paragraph" aria-labelledby="paragraphLabel">
+            <div class="paragraph-heading">
+              <div>
+                <p class="step-label">02 · Example paragraph</p>
+                <p id="paragraphLabel" class="paragraph-help">Write one sentence or a whole paragraph. Select any words, then choose an event colour to link them.</p>
+              </div>
+            </div>
+            <div id="paragraphEditor" class="paragraph-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="paragraphLabel" spellcheck="true"></div>
+            <div class="paragraph-tools">
+              <div class="link-toolbar" id="linkToolbar" aria-label="Link selected words to an event"></div>
+            </div>
+          </div>
+          <p class="stage-help">Drag the coloured marker to move an event. Edit its name, colour, position, duration, or remove it directly on the timeline.</p>
+        </section>
+      </main>
+      <footer class="site-footer">
+        <p>All feedback is welcome.</p>
+        <a href="mailto:lkhoangedu@gmail.com">lkhoangedu@gmail.com</a>
+      </footer>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <dialog id="newDialog" class="confirm-dialog">
+      <form method="dialog">
+        <p class="eyebrow">Start again</p>
+        <h2>Create a new timeline?</h2>
+        <p>This will replace the timeline saved on this device.</p>
+        <div class="dialog-actions">
+          <button class="button button-ghost" value="cancel">Keep this one</button>
+          <button class="button button-danger" id="confirmNew" value="confirm">Create new</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
