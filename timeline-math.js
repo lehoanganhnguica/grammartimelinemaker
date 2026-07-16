@@ -111,7 +111,7 @@
     if (item.shape === "range") {
       const containedMoment = others
         .filter((event) => event.shape !== "range" && Number(event.x) >= Number(item.x) && Number(event.x) <= Number(item.endX))
-        .sort((a, b) => Math.abs(Number(a.x) - eventCenter(item)) - Math.abs(Number(b.x) - eventCenter(item)))[0];
+        .sort((a, b) => Number(b.x) - Number(a.x))[0];
       if (!containedMoment) return null;
       const verb = timeFrame === "past" ? "was this still" : timeFrame === "future" ? "will this be" : "is this still";
       return { question: `At “${containedMoment.label}”, ${verb} in progress?`, answer: "Yes" };
