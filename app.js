@@ -4,6 +4,7 @@ const PALETTE = ["#e85d45", "#1967d2", "#0b8f71", "#9b51e0", "#d28a00", "#d43b78
 const starterState = () => ({
   textSize: 24,
   nowX: 78,
+  showCcqAnswers: false,
   sentence: "My mom had cooked dinner when I got home.",
   events: [
     { id: makeId(), label: "Mom cooked dinner", timestamp: "", color: PALETTE[0], x: 25, endX: 43, lane: "below", shape: "point" },
@@ -19,6 +20,7 @@ let layoutFrame = null;
 let lastPreviewX = 50;
 let nowDrag = false;
 let stageCreate = null;
+const projectHistory = TimelineMath.createHistory(60);
 
 const els = {
   editor: document.querySelector("#paragraphEditor"),
@@ -28,11 +30,15 @@ const els = {
   rangePreview: document.querySelector("#rangePreview"),
   nowMarker: document.querySelector("#nowMarker"),
   linkToolbar: document.querySelector("#linkToolbar"),
+  ccqList: document.querySelector("#ccqList"),
+  ccqToggle: document.querySelector("#toggleCcqAnswers"),
   textSizeRange: document.querySelector("#textSizeRange"),
   textSizeValue: document.querySelector("#textSizeValue"),
   savedState: document.querySelector("#savedState"),
   toast: document.querySelector("#toast"),
   dialog: document.querySelector("#newDialog"),
+  undoButton: document.querySelector("#undoButton"),
+  redoButton: document.querySelector("#redoButton"),
 };
 
 function loadState() {
@@ -43,8 +49,10 @@ function loadState() {
         item.endX = clamp(item.endX ?? item.x + 18, item.x + 5, 96);
         item.timestamp = item.timestamp || "";
       });
+      ensureUniqueEventColours(stored.events);
       stored.textSize = clamp(Number(stored.textSize) || 24, 16, 48);
       stored.nowX = clamp(Number(stored.nowX) || 78, 4, 96);
+      stored.showCcqAnswers = Boolean(stored.showCcqAnswers);
       return stored;
     }
   } catch (_) {}
@@ -63,6 +71,7 @@ function init() {
   setTextSize(state.textSize, false);
   setNowPosition(state.nowX, false);
   render();
+  updateHistoryButtons();
 }
 
 function bindGlobalEvents() {
@@ -74,10 +83,12 @@ function bindGlobalEvents() {
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     const step = event.shiftKey ? 5 : 1;
+    recordHistory("now-keyboard", true);
     setNowPosition(state.nowX + (event.key === "ArrowLeft" ? -step : step));
   });
 
   els.editor.addEventListener("input", () => {
+    recordHistory("paragraph", true);
     state.sentence = els.editor.innerText.replace(/\n$/, "");
     state.links = [];
     if (state.sentence) delete els.editor.dataset.empty;
@@ -87,9 +98,12 @@ function bindGlobalEvents() {
   els.editor.addEventListener("blur", () => renderParagraph());
 
   document.querySelector("#addEventButton").addEventListener("click", () => addEvent(lastPreviewX));
+  els.undoButton.addEventListener("click", undoHistory);
+  els.redoButton.addEventListener("click", redoHistory);
   document.querySelector("#clearEventsButton").addEventListener("click", () => {
     if (!state.events.length) return showToast("The timeline is already clear");
     if (!window.confirm("Clear all timeline events? Your example paragraph will be kept.")) return;
+    recordHistory("clear-events");
     state.events = [];
     state.links = [];
     render();
@@ -99,9 +113,15 @@ function bindGlobalEvents() {
   els.stage.addEventListener("pointerdown", startStageCreate);
   els.stage.addEventListener("pointermove", updateClickPreview);
   els.stage.addEventListener("pointerleave", hideClickPreview);
+  els.ccqToggle.addEventListener("click", () => {
+    state.showCcqAnswers = !state.showCcqAnswers;
+    renderConceptQuestions();
+    scheduleSave();
+  });
 
   document.querySelector("#newButton").addEventListener("click", () => els.dialog.showModal());
   document.querySelector("#confirmNew").addEventListener("click", () => {
+    recordHistory("new-timeline");
     state = starterState();
     state.sentence = "";
     state.events = [];
@@ -125,6 +145,14 @@ function bindGlobalEvents() {
   window.addEventListener("pointercancel", cancelStageCreate);
   window.addEventListener("resize", scheduleCollisionLayout);
   window.addEventListener("keydown", (event) => {
+    const shortcutKey = event.metaKey || event.ctrlKey;
+    const key = event.key.toLowerCase();
+    if (shortcutKey && !event.altKey && (key === "z" || (event.ctrlKey && key === "y"))) {
+      event.preventDefault();
+      if ((key === "z" && event.shiftKey) || key === "y") redoHistory();
+      else undoHistory();
+      return;
+    }
     if (event.key === "Escape" && document.body.classList.contains("is-presenting")) {
       document.body.classList.remove("is-presenting");
       document.querySelector("#presentButton").textContent = "Present";
@@ -176,31 +204,50 @@ function renderTimeline() {
     const nameField = node.querySelector(".inline-name");
     resizeEventName(nameField, false);
     nameField.addEventListener("input", (event) => {
+      recordHistory(`event-name-${item.id}`, true);
       item.label = event.target.value || "Untitled event";
       resizeEventName(event.target);
       renderParagraphTools(false);
+      renderConceptQuestions();
       scheduleSave();
     });
     const timestampField = node.querySelector(".timestamp-input");
     timestampField.addEventListener("input", (event) => {
+      recordHistory(`event-time-${item.id}`, true);
       item.timestamp = event.target.value;
       event.target.closest(".timestamp-row").classList.toggle("has-value", Boolean(item.timestamp.trim()));
+      renderConceptQuestions();
       scheduleCollisionLayout();
       scheduleSave();
     });
     timestampField.addEventListener("blur", () => requestAnimationFrame(scheduleCollisionLayout));
     node.querySelector(".inline-colour").addEventListener("input", (event) => {
-      item.color = event.target.value;
+      if (event.target.value.toLowerCase() === item.color.toLowerCase()) return;
+      recordHistory(`event-colour-${item.id}`, true);
+      const previousColour = item.color;
+      const chosenColour = event.target.value;
+      const conflict = state.events.find((entry) => entry.id !== item.id && entry.color.toLowerCase() === chosenColour.toLowerCase());
+      if (conflict) {
+        conflict.color = previousColour;
+        const conflictNode = els.layer.querySelector(`[data-id="${conflict.id}"]`);
+        conflictNode?.style.setProperty("--event-color", conflict.color);
+        const conflictPicker = conflictNode?.querySelector(".inline-colour");
+        if (conflictPicker) conflictPicker.value = conflict.color;
+      }
+      item.color = chosenColour;
       node.style.setProperty("--event-color", item.color);
       renderParagraphTools();
+      renderConceptQuestions();
       scheduleSave();
     });
     node.querySelector(".lane-action").addEventListener("click", () => {
+      recordHistory(`event-lane-${item.id}`);
       item.lane = item.lane === "above" ? "below" : "above";
       renderTimeline();
       scheduleSave();
     });
     node.querySelector(".shape-action").addEventListener("click", () => {
+      recordHistory(`event-shape-${item.id}`);
       item.shape = item.shape === "range" ? "point" : "range";
       if (item.shape === "range") item.endX = clamp(item.endX ?? item.x + 18, item.x + 5, 96);
       renderTimeline();
@@ -210,6 +257,8 @@ function renderTimeline() {
     node.addEventListener("keydown", (event) => {
       if (event.target.matches("input, textarea, button")) return;
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        recordHistory(`event-keyboard-${item.id}`, true);
         const delta = event.key === "ArrowLeft" ? -2 : 2;
         if (item.shape === "range") {
           const duration = item.endX - item.x;
@@ -224,6 +273,7 @@ function renderTimeline() {
     });
   });
   scheduleCollisionLayout();
+  renderConceptQuestions();
 }
 
 function scheduleCollisionLayout() {
@@ -280,11 +330,12 @@ function applyCollisionLayout() {
     });
   });
 
-  els.stage.style.height = `${Math.max(430, Math.ceil((106 + greatestExtent) * 2))}px`;
+  const minimumStageHeight = state.events.length ? 300 : 220;
+  els.stage.style.height = `${Math.max(minimumStageHeight, Math.ceil((90 + greatestExtent) * 2))}px`;
 }
 
 function updateClickPreview(event) {
-  if (drag || nowDrag || stageCreate || event.target.closest(".timeline-event, .stage-add-hint, .now-line")) return hideClickPreview();
+  if (drag || nowDrag || stageCreate || event.target.closest(".timeline-event, .now-line")) return hideClickPreview();
   const rect = els.stage.getBoundingClientRect();
   if (!TimelineMath.isAlongTimeline(event.clientY, rect)) return hideClickPreview();
   lastPreviewX = clamp(((event.clientX - rect.left) / rect.width) * 100, 4, 96);
@@ -300,7 +351,7 @@ function hideClickPreview() {
 
 function startStageCreate(event) {
   if (event.button !== 0 || drag || nowDrag || document.body.classList.contains("is-presenting")) return;
-  if (event.target.closest(".timeline-event, .stage-add-hint, .now-line, button, input, textarea, label")) return;
+  if (event.target.closest(".timeline-event, .now-line, button, input, textarea, label")) return;
   const rect = els.stage.getBoundingClientRect();
   if (!TimelineMath.isAlongTimeline(event.clientY, rect)) return;
   const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 4, 96);
@@ -351,6 +402,7 @@ function cancelStageCreate(event) {
 
 function startNowDrag(event) {
   if (event.button !== 0) return;
+  recordHistory("now-drag");
   nowDrag = true;
   els.nowMarker.classList.add("is-dragging");
   hideClickPreview();
@@ -362,11 +414,13 @@ function setNowPosition(value, save = true) {
   state.nowX = clamp(Math.round(Number(value) || 78), 4, 96);
   els.stage.style.setProperty("--now-x", `${state.nowX}%`);
   els.nowMarker.setAttribute("aria-valuetext", `Now at ${state.nowX}% of the timeline`);
+  if (els.ccqList) renderConceptQuestions();
   if (save) scheduleSave();
 }
 
 function startDrag(event, item, node, handle) {
   if (event.button !== 0) return;
+  recordHistory(`event-drag-${item.id}`);
   const rect = els.stage.getBoundingClientRect();
   drag = {
     id: item.id,
@@ -424,6 +478,37 @@ function endDrag(event) {
   scheduleSave();
 }
 
+function renderConceptQuestions() {
+  els.ccqToggle.textContent = state.showCcqAnswers ? "Hide answers" : "Reveal answers";
+  els.ccqToggle.setAttribute("aria-pressed", String(state.showCcqAnswers));
+  els.ccqToggle.disabled = state.events.length === 0;
+
+  if (!state.events.length) {
+    els.ccqList.innerHTML = `<p class="ccq-empty">Add an event to generate concept questions.</p>`;
+    return;
+  }
+
+  els.ccqList.innerHTML = state.events.map((item) => {
+    const questions = TimelineMath.buildConceptQuestions(item, state.events, state.nowX);
+    const timeFrame = TimelineMath.classifyEventTime(item, state.nowX);
+    const kind = item.shape === "range" ? "Continuous action" : "Single moment";
+    const time = item.timestamp?.trim();
+    const frameLabel = `${timeFrame.charAt(0).toUpperCase()}${timeFrame.slice(1)}`;
+    const meta = time ? `${frameLabel} · ${kind} · ${time}` : `${frameLabel} · ${kind}`;
+    return `
+      <article class="ccq-card" style="--event-color:${item.color}">
+        <header class="ccq-card-heading">
+          <i aria-hidden="true"></i>
+          <div><h3>${escapeHtml(item.label)}</h3><p>${escapeHtml(meta)}</p></div>
+        </header>
+        <ol class="ccq-list">
+          ${questions.map(({ question, answer }) => `
+            <li><span class="ccq-question">${escapeHtml(question)}</span><strong class="ccq-answer" ${state.showCcqAnswers ? "" : "hidden"}>${escapeHtml(answer)}</strong></li>`).join("")}
+        </ol>
+      </article>`;
+  }).join("");
+}
+
 function renderParagraphTools(updateParagraph = true) {
   els.linkToolbar.innerHTML = state.events.length
     ? state.events.map((item) => `<button class="link-chip" style="--event-color:${item.color}" data-id="${item.id}" type="button"><i></i>${escapeHtml(item.label)}</button>`).join("") + `<button class="unlink-button" type="button">Clear links</button>`
@@ -434,6 +519,8 @@ function renderParagraphTools(updateParagraph = true) {
     button.addEventListener("click", () => linkSelection(button.dataset.id));
   });
   els.linkToolbar.querySelector(".unlink-button")?.addEventListener("click", () => {
+    if (!state.links.length) return;
+    recordHistory("clear-links");
     state.links = [];
     renderParagraph();
     scheduleSave();
@@ -458,6 +545,7 @@ function linkSelection(eventId) {
   before.setEnd(range.startContainer, range.startOffset);
   const start = before.toString().length;
   const end = start + range.toString().length;
+  recordHistory("link-selection");
   state.sentence = els.editor.innerText.replace(/\n$/, "");
   state.links = state.links.filter((link) => link.end <= start || link.start >= end);
   state.links.push({ eventId, start, end });
@@ -488,10 +576,11 @@ function buildHighlightedText() {
 }
 
 function addEvent(x = null, options = {}) {
+  recordHistory("add-event");
   const index = state.events.length;
   const eventX = x ?? clamp(25 + index * 15, 10, 90);
   const item = {
-    id: makeId(), label: `New event ${index + 1}`, timestamp: "", color: PALETTE[index % PALETTE.length],
+    id: makeId(), label: `New event ${index + 1}`, timestamp: "", color: nextEventColour(state.events),
     x: eventX, lane: index % 2 ? "above" : "below", shape: options.shape || "point",
   };
   item.endX = clamp(options.endX ?? item.x + 18, item.x + 5, 96);
@@ -506,6 +595,7 @@ function addEvent(x = null, options = {}) {
 }
 
 function deleteEvent(id) {
+  recordHistory(`delete-event-${id}`);
   state.events = state.events.filter((item) => item.id !== id);
   state.links = state.links.filter((link) => link.eventId !== id);
   render();
@@ -519,7 +609,9 @@ function scheduleSave() {
 }
 
 function setTextSize(value, save = true) {
-  state.textSize = clamp(Math.round(Number(value) || 24), 16, 48);
+  const nextSize = clamp(Math.round(Number(value) || 24), 16, 48);
+  if (save && nextSize !== state.textSize) recordHistory("text-size", true);
+  state.textSize = nextSize;
   document.documentElement.style.setProperty("--readability-size", `${state.textSize}px`);
   els.textSizeRange.value = state.textSize;
   els.textSizeValue.textContent = `${state.textSize}px`;
@@ -528,6 +620,60 @@ function setTextSize(value, save = true) {
     scheduleCollisionLayout();
   });
   if (save) scheduleSave();
+}
+
+function snapshotState() {
+  const { showCcqAnswers: _viewPreference, ...project } = state;
+  return JSON.stringify(project);
+}
+
+function recordHistory(key, coalesce = false) {
+  projectHistory.record(snapshotState(), key, coalesce ? 900 : 0);
+  updateHistoryButtons();
+}
+
+function updateHistoryButtons() {
+  els.undoButton.disabled = !projectHistory.canUndo;
+  els.redoButton.disabled = !projectHistory.canRedo;
+}
+
+function restoreHistorySnapshot(snapshot, message) {
+  const showCcqAnswers = state.showCcqAnswers;
+  state = { ...JSON.parse(snapshot), showCcqAnswers };
+  setTextSize(state.textSize, false);
+  setNowPosition(state.nowX, false);
+  render();
+  saveNow();
+  updateHistoryButtons();
+  showToast(message);
+}
+
+function undoHistory() {
+  const snapshot = projectHistory.undo(snapshotState());
+  if (!snapshot) return showToast("Nothing to undo");
+  restoreHistorySnapshot(snapshot, "Change undone");
+}
+
+function redoHistory() {
+  const snapshot = projectHistory.redo(snapshotState());
+  if (!snapshot) return showToast("Nothing to redo");
+  restoreHistorySnapshot(snapshot, "Change redone");
+}
+
+function nextEventColour(events, excludeId = null) {
+  const usedColours = events.filter((item) => item.id !== excludeId).map((item) => item.color);
+  return TimelineMath.nextUniqueColor(usedColours, PALETTE);
+}
+
+function ensureUniqueEventColours(events) {
+  const usedColours = [];
+  events.forEach((item) => {
+    const colour = /^#[0-9a-f]{6}$/i.test(item.color || "") ? item.color.toLowerCase() : null;
+    item.color = colour && !usedColours.includes(colour)
+      ? colour
+      : TimelineMath.nextUniqueColor(usedColours, PALETTE);
+    usedColours.push(item.color.toLowerCase());
+  });
 }
 
 function saveNow() {
